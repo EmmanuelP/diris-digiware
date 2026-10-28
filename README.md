@@ -54,6 +54,15 @@ table row indexes, and the measurement key. This keeps sensors for circuits
 with duplicate names distinct. Home Assistant generates entity IDs from the
 sensor names; those entity IDs can be changed in the entity settings.
 
+## License
+
+This project is licensed under the
+[GNU Affero General Public License v3.0 or later](LICENSE)
+(`AGPL-3.0-or-later`).
+
+The files in `docs/` are vendor reference material from Socomec and are not
+covered by this license.
+
 ## Development
 
 Install the project's test dependencies, then run:
