@@ -11,3 +11,11 @@
 - Create entities for active energy (engTotalEnergyActivePos) and instant active power (instTotalPowerActive).
 - If possible, improve energy precision by using the residual counter in dWh stored in engTotalEnergyActiveResidualPos, taking care about the fact reading of engTotalEnergyActivePos and engTotalEnergyActiveResidualPos is not atomic, residual reading is not always in sync with the kWh value, index should always be increasing.
 - All counters are listed in circuitName values. Use this string to build the entity name and unique_id.
+## Decision log
+- Record every non-trivial design decision in `docs/decisions.md` before
+  finishing a task: what was decided, why, and the alternatives rejected.
+- Read `docs/decisions.md` at the start of a session and do not contradict an
+  existing decision without asking the user; if a decision changes, add a new
+  entry that supersedes the old one instead of deleting it.
+- Keep entries short (a few lines), dated, and newest last.
+- Do not record routine changes; use commit messages for those.
