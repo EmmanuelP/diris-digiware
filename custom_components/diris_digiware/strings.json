@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to DIRIS Digiware",
+        "description": "Configure the device's SNMPv3 authPriv connection. Authentication uses HMAC-SHA and privacy uses AES-CFB-128.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "username": "Username",
+          "auth_key": "Authentication key",
+          "priv_key": "Privacy key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not communicate with the device over SNMP."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling interval",
+        "description": "Set how often the device is polled. The minimum interval is 30 seconds.",
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  }
+}

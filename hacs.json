@@ -1,0 +1,7 @@
+{
+  "name": "Socomec DIRIS Digiware",
+  "render_readme": true,
+  "homeassistant": "2024.6.0",
+  "zip_release": false,
+  "filename": "diris_digiware.zip"
+}

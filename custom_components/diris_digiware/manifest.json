@@ -1,0 +1,11 @@
+{
+  "domain": "diris_digiware",
+  "name": "Socomec DIRIS Digiware",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/EmmanuelP/diris-digiware",
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "requirements": ["pysnmp>=7.1.16,<8"],
+  "version": "0.1.0"
+}
