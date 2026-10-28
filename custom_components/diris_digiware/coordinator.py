@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -28,6 +29,7 @@ from .const import (
 from .snmp import SnmpClient, SnmpCommunicationError
 
 _LOGGER = logging.getLogger(__name__)
+POLL_TIMEOUT = 20
 type CircuitKey = tuple[int, int]
 
 
@@ -64,18 +66,19 @@ class DirisDigiwareCoordinator(
     async def _async_update_data(self) -> dict[CircuitKey, CircuitReading]:
         """Read all documented tables and combine rows by their table indexes."""
         try:
-            async with SnmpClient(
-                self._entry.data["host"],
-                self._entry.data["port"],
-                self._entry.data["username"],
-                self._entry.data["auth_key"],
-                self._entry.data["priv_key"],
-            ) as client:
-                names = await client.walk(CIRCUIT_NAME_OID)
-                energy = await client.walk(ACTIVE_ENERGY_OID)
-                residual = await client.walk(ACTIVE_ENERGY_RESIDUAL_OID)
-                power = await client.walk(ACTIVE_POWER_OID)
-        except SnmpCommunicationError as err:
+            async with asyncio.timeout(POLL_TIMEOUT):
+                async with SnmpClient(
+                    self._entry.data["host"],
+                    self._entry.data["port"],
+                    self._entry.data["username"],
+                    self._entry.data["auth_key"],
+                    self._entry.data["priv_key"],
+                ) as client:
+                    names = await client.walk(CIRCUIT_NAME_OID)
+                    energy = await client.walk(ACTIVE_ENERGY_OID)
+                    residual = await client.walk(ACTIVE_ENERGY_RESIDUAL_OID)
+                    power = await client.walk(ACTIVE_POWER_OID)
+        except (SnmpCommunicationError, TimeoutError) as err:
             raise UpdateFailed(
                 f"Unable to poll the DIRIS Digiware device: {err}"
             ) from err
