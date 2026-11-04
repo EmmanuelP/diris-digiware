@@ -22,6 +22,91 @@ from custom_components.diris_digiware.const import (
     CIRCUIT_NAME_OID,
     DOMAIN,
 )
+from custom_components.diris_digiware.snmp import SnmpCommunicationError
+
+
+@pytest.mark.parametrize("initial_circuits", [{}, {(3, 1): "Main"}])
+async def test_discovers_circuits_during_polling(
+    hass, enable_custom_integrations, monkeypatch, initial_circuits
+):
+    """Discover circuits even from an empty setup, without duplicates or leaks."""
+    responses = {
+        CIRCUIT_NAME_OID: dict(initial_circuits),
+        ACTIVE_ENERGY_OID: {(3, 1): 12, (3, 2): 15},
+        ACTIVE_ENERGY_RESIDUAL_OID: {},
+        ACTIVE_POWER_OID: {(3, 1): 100, (3, 2): 200},
+    }
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.walk.side_effect = lambda oid: responses[oid]
+    monkeypatch.setattr(
+        "custom_components.diris_digiware.coordinator.SnmpClient", lambda *_: client
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "host": "meter.local",
+            "port": 161,
+            "username": "user",
+            "auth_key": "auth-secret",
+            "priv_key": "priv-secret",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    registry = er.async_get(hass)
+    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == (
+        2 * len(initial_circuits)
+    )
+
+    responses[CIRCUIT_NAME_OID] = {(3, 1): "Main", (3, 2): "Main"}
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done()
+    registered = er.async_entries_for_config_entry(registry, entry.entry_id)
+    assert len(registered) == 4
+    assert len({entity.device_id for entity in registered}) == 2
+    original_ids = {entity.entity_id for entity in registered}
+    for key, power in ((1, "100"), (2, "200")):
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_main_3_{key}_active_power"
+        )
+        assert hass.states.get(entity_id).state == power
+
+    client.walk.side_effect = SnmpCommunicationError("offline")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert all(
+        hass.states.get(entity_id).state == "unavailable" for entity_id in original_ids
+    )
+    client.walk.side_effect = lambda oid: responses[oid]
+    responses[CIRCUIT_NAME_OID] = {}
+    await coordinator.async_refresh()
+    responses[CIRCUIT_NAME_OID] = {(3, 1): "Main", (3, 2): "Main"}
+    responses[ACTIVE_POWER_OID][(3, 2)] = 300
+    for _ in range(2):
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+    assert {
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+    } == original_ids
+    entity_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_main_3_2_active_power"
+    )
+    assert hass.states.get(entity_id).state == "300"
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not coordinator._listeners
+    assert {
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+    } == original_ids
+    reloaded = hass.data[DOMAIN][entry.entry_id]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert not reloaded._listeners
 
 
 @pytest.mark.parametrize("existing_entities", [False, True])

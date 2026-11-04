@@ -53,3 +53,11 @@ Format: date, decision, rationale, alternatives rejected.
   4555.10.10.20; do not derive one table's prefix from the other.
 - Test measurements against docs/snmpwalk.txt rather than building all mocked
   responses from integration constants, which hid the incorrect extra .10.
+
+## 2026-11-04 - Discover circuit entities during polling
+- Register a coordinator listener to add both sensors for unseen circuit indexes;
+  remove the listener on entry unload, including when discovery initially is empty.
+- Keep known indexes for the loaded entry so temporary disappearance or renaming
+  does not create duplicate entities. Preserve existing naming and unique IDs.
+- Rejected: requiring reloads to discover circuits or deleting missing circuits
+  automatically (transient SNMP omissions should not remove user configuration).

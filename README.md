@@ -29,6 +29,11 @@ The device is polled every 30 seconds by default. Change the **Polling interval
 Intervals shorter than 30 seconds are rejected, and the coordinator enforces
 the same 30-second minimum as a guard.
 
+Circuit names are reread on every poll. Newly discovered named circuits
+automatically get a device and both sensors, without reloading the integration.
+Circuits that temporarily disappear are not deleted; their existing sensors
+resume reporting when they return.
+
 ## Created devices and entities
 
 The integration uses each circuit's `circuitName` value as the start of both

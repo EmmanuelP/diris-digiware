@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfPower
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -44,27 +44,36 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up sensors from the initially discovered circuit table."""
+    """Set up sensors and discover additional circuits after each update."""
     coordinator: DirisDigiwareCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[DirisDigiwareSensor] = []
-    for key, reading in coordinator.data.items():
-        device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry.entry_id}_{key[0]}_{key[1]}")},
-            name=reading.name,
-            manufacturer="Socomec",
-            model="DIRIS Digiware",
-        )
-        entities.extend(
-            (
-                DirisDigiwareSensor(
-                    coordinator, entry, key, reading, ENERGY_DESCRIPTION, device_info
-                ),
-                DirisDigiwareSensor(
-                    coordinator, entry, key, reading, POWER_DESCRIPTION, device_info
-                ),
+    known_circuits: set[CircuitKey] = set()
+
+    @callback
+    def async_discover_circuits() -> None:
+        if not coordinator.last_update_success:
+            return
+        entities: list[DirisDigiwareSensor] = []
+        for key, reading in coordinator.data.items():
+            if key in known_circuits:
+                continue
+            known_circuits.add(key)
+            device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{entry.entry_id}_{key[0]}_{key[1]}")},
+                name=reading.name,
+                manufacturer="Socomec",
+                model="DIRIS Digiware",
             )
-        )
-    async_add_entities(entities)
+            entities.extend(
+                DirisDigiwareSensor(
+                    coordinator, entry, key, reading, description, device_info
+                )
+                for description in (ENERGY_DESCRIPTION, POWER_DESCRIPTION)
+            )
+        if entities:
+            async_add_entities(entities)
+
+    entry.async_on_unload(coordinator.async_add_listener(async_discover_circuits))
+    async_discover_circuits()
 
 
 class DirisDigiwareSensor(
