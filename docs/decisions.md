@@ -47,3 +47,9 @@ Format: date, decision, rationale, alternatives rejected.
 - Disable response MIB lookup because all integration OIDs are numeric.
 - Rejected: offloading only the constructor (response processing still loads
   instance MIBs lazily) or suppressing Home Assistant's blocking-call warnings.
+
+## 2026-11-04 - Verify measurement OIDs against the recorded walk
+- Measurement tables use the 4555.10.20 subtree, while circuitName uses
+  4555.10.10.20; do not derive one table's prefix from the other.
+- Test measurements against docs/snmpwalk.txt rather than building all mocked
+  responses from integration constants, which hid the incorrect extra .10.

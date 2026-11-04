@@ -3,6 +3,7 @@
 
 """Tests for DIRIS Digiware polling and energy precision."""
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -158,6 +159,32 @@ def _patch_client(monkeypatch, walk) -> None:
         "custom_components.diris_digiware.coordinator.SnmpClient",
         lambda *_: MockSnmpClient(),
     )
+
+
+async def test_measurement_oids_match_recorded_walk(hass, monkeypatch):
+    """Use vendor walk OIDs independently of the integration's constants."""
+    lines = (
+        Path(__file__).parents[1] / "docs" / "snmpwalk.txt"
+    ).read_text().splitlines()
+
+    async def walk(oid):
+        prefix = f".{oid}."
+        values = {}
+        for line in lines:
+            if not line.startswith(prefix):
+                continue
+            object_oid, raw_value = line.split(" = ", 1)
+            suffix = tuple(int(part) for part in object_oid[len(prefix):].split("."))
+            value_type, text = raw_value.split(": ", 1)
+            values[suffix] = text.strip('"') if value_type == "STRING" else int(text)
+        return values
+
+    _patch_client(monkeypatch, walk)
+    readings = await DirisDigiwareCoordinator(hass, _entry())._async_update_data()
+
+    assert readings[(3, 1)].name == "Q13 - CENTRE  DE CALCUL"
+    assert readings[(3, 1)].active_energy_kwh == pytest.approx(88778.1996)
+    assert readings[(3, 1)].active_power_w == 9764
 
 
 @pytest.mark.asyncio

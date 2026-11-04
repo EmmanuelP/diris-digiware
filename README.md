@@ -97,3 +97,7 @@ or external network access is required.
 
 The SNMP engine and bundled MIBs are initialized in a worker thread to avoid
 blocking Home Assistant's event loop. Network requests remain asynchronous.
+
+Measurement OIDs are also checked against the supplied
+[SNMP walk](docs/snmpwalk.txt): circuit names and measurements use different
+OID subtrees.

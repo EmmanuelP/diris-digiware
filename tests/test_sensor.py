@@ -3,12 +3,17 @@
 
 """Tests for circuit device grouping and existing entity registration."""
 
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.diris_digiware.const import (
     ACTIVE_ENERGY_OID,
@@ -101,7 +106,21 @@ async def test_circuit_devices(
         assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert len(circuit_device_ids) == 6
+    responses[ACTIVE_ENERGY_OID] = dict.fromkeys(names, 13)
+    responses[ACTIVE_POWER_OID] = dict.fromkeys(names, 2400)
+    calls_before = client.walk.await_count
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done()
+    assert client.walk.await_count == calls_before + 8
     for entry in entries:
+        for key in names:
+            for measurement, state in (
+                ("active_energy", "13.25"),
+                ("active_power", "2400"),
+            ):
+                unique_id = f"{entry.entry_id}_main_{key[0]}_{key[1]}_{measurement}"
+                entity_id = entities.async_get_entity_id("sensor", DOMAIN, unique_id)
+                assert hass.states.get(entity_id).state == state
         assert len(er.async_entries_for_config_entry(entities, entry.entry_id)) == 6
         for key in names:
             device = devices.async_get_device_by_identifier(
