@@ -34,3 +34,10 @@ Format: date, decision, rationale, alternatives rejected.
 - Code: AGPL-3.0-or-later, with SPDX headers in `custom_components/` and `tests/`.
 - Vendor MIB and walk in `docs/` are not covered by this license and carry no
   header.
+
+## 2026-11-04 - One Home Assistant device per circuit
+- Group each circuit's energy and power sensors in a device named by circuitName.
+- Device identifiers use the config-entry ID and both circuit row indexes;
+  sensor names and unique IDs remain unchanged to preserve existing entities.
+- Rejected: grouping all circuits in one gateway device (no per-circuit grouping)
+  or using circuitName alone as the device identifier (duplicate names collide).

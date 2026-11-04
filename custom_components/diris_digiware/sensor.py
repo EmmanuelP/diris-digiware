@@ -46,14 +46,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensors from the initially discovered circuit table."""
     coordinator: DirisDigiwareCoordinator = hass.data[DOMAIN][entry.entry_id]
-    device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=f"DIRIS Digiware ({entry.data['host']})",
-        manufacturer="Socomec",
-        model="DIRIS Digiware",
-    )
     entities: list[DirisDigiwareSensor] = []
     for key, reading in coordinator.data.items():
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{key[0]}_{key[1]}")},
+            name=reading.name,
+            manufacturer="Socomec",
+            model="DIRIS Digiware",
+        )
         entities.extend(
             (
                 DirisDigiwareSensor(
@@ -99,7 +99,7 @@ class DirisDigiwareSensor(
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return the shared DIRIS Digiware device."""
+        """Return the device shared by this circuit's sensors."""
         return self._device_info
 
     @property
