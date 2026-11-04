@@ -89,5 +89,11 @@ ruff check .
 pytest
 ```
 
-Tests use Home Assistant's custom-component pytest fixtures and mock all SNMP
-requests.
+Tests use Home Assistant's custom-component pytest fixtures and mock SNMP
+requests, except for a local loopback SNMPv3 regression test. That test exercises
+authentication, encrypted responses, and repeated walks with the real library
+while checking that MIB files are not read on the event loop. No physical device
+or external network access is required.
+
+The SNMP engine and bundled MIBs are initialized in a worker thread to avoid
+blocking Home Assistant's event loop. Network requests remain asynchronous.

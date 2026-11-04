@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 from pysnmp.error import PySnmpError
@@ -19,6 +20,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     usmHMACSHAAuthProtocol,
     walk_cmd,
 )
+from pysnmp.smi.compiler import add_mib_compiler
 
 
 class SnmpCommunicationError(Exception):
@@ -36,28 +38,42 @@ class SnmpClient:
         self._username = username
         self._auth_key = auth_key
         self._priv_key = priv_key
-        self._engine = SnmpEngine()
+        self._engine: SnmpEngine | None = None
         self._target: UdpTransportTarget | None = None
 
+    @staticmethod
+    def _create_engine() -> SnmpEngine:
+        """Load built-in MIBs before asynchronous requests can trigger disk I/O."""
+        engine = SnmpEngine()
+        builder = engine.get_mib_builder()
+        builder.load_modules()
+        add_mib_compiler(builder, ifAvailable=True, ifNotAdded=True)
+        return engine
+
     async def __aenter__(self) -> SnmpClient:
-        """Create the asynchronous UDP transport target."""
+        """Create the transport and initialize MIBs outside the event loop."""
         try:
             self._target = await UdpTransportTarget.create(
                 (self._host, self._port), timeout=3, retries=1
             )
+            self._engine = await asyncio.to_thread(self._create_engine)
         except (PySnmpError, OSError, TimeoutError) as err:
+            self._target = None
             raise SnmpCommunicationError(
-                f"Unable to create the SNMP transport: {err}"
+                f"Unable to initialize the SNMP client: {err}"
             ) from err
         return self
 
     async def __aexit__(self, *_: object) -> None:
         """Release the transport dispatcher."""
-        self._engine.close_dispatcher()
+        if self._engine is not None:
+            self._engine.close_dispatcher()
+            self._engine = None
+        self._target = None
 
     async def walk(self, oid: str) -> dict[tuple[int, ...], int | str]:
         """Walk an OID column and return its indexed values."""
-        if self._target is None:
+        if self._target is None or self._engine is None:
             raise RuntimeError("SNMP client must be entered before use")
 
         base_oid = tuple(int(part) for part in oid.split("."))
@@ -76,6 +92,7 @@ class SnmpClient:
                 ContextData(),
                 ObjectType(ObjectIdentity(oid)),
                 lexicographicMode=False,
+                lookupMib=False,
             )
             async for indication, status, index, bindings in results:
                 if indication:

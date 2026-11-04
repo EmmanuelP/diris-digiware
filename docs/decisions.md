@@ -41,3 +41,9 @@ Format: date, decision, rationale, alternatives rejected.
   sensor names and unique IDs remain unchanged to preserve existing entities.
 - Rejected: grouping all circuits in one gateway device (no per-circuit grouping)
   or using circuitName alone as the device identifier (duplicate names collide).
+
+## 2026-11-04 - Initialize pysnmp MIBs outside the event loop
+- Create the engine and preload bundled MIBs in a worker; keep UDP I/O async.
+- Disable response MIB lookup because all integration OIDs are numeric.
+- Rejected: offloading only the constructor (response processing still loads
+  instance MIBs lazily) or suppressing Home Assistant's blocking-call warnings.
