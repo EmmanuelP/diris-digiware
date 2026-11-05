@@ -18,9 +18,12 @@ from custom_components.diris_digiware.const import (
     MIN_SCAN_INTERVAL,
 )
 from custom_components.diris_digiware.coordinator import (
+    MEASUREMENTS,
     DirisDigiwareCoordinator,
     energy_from_counters,
 )
+
+WALK_PATH = Path(__file__).parents[1] / "docs" / "snmpwalk.txt"
 
 
 def test_energy_from_counters_uses_tenth_watt_hour_resolution() -> None:
@@ -67,8 +70,8 @@ async def test_coordinator_merges_documented_table_indexes(hass, monkeypatch) ->
     readings = await coordinator._async_update_data()
 
     assert readings[(3, 1)].name == "Main circuit"
-    assert readings[(3, 1)].active_energy_kwh == 125.25
-    assert readings[(3, 1)].active_power_w == 1800
+    assert readings[(3, 1)].values.get("active_energy") == 125.25
+    assert readings[(3, 1)].values.get("active_power") == 1800
 
 
 @pytest.mark.asyncio
@@ -111,8 +114,8 @@ async def test_energy_never_decreases_between_polls(hass, monkeypatch) -> None:
     responses[ACTIVE_ENERGY_RESIDUAL_OID] = {(3, 1): 0}
     second = await coordinator._async_update_data()
 
-    assert first[(3, 1)].active_energy_kwh == 125.05
-    assert second[(3, 1)].active_energy_kwh == 125.05
+    assert first[(3, 1)].values.get("active_energy") == 125.05
+    assert second[(3, 1)].values.get("active_energy") == 125.05
 
 
 @pytest.mark.parametrize(
@@ -161,30 +164,28 @@ def _patch_client(monkeypatch, walk) -> None:
     )
 
 
+async def _recorded_walk(oid: str) -> dict[tuple[int, ...], str | int]:
+    """Answer a walk from the vendor recording, independently of constants."""
+    prefix = f".{oid}."
+    values: dict[tuple[int, ...], str | int] = {}
+    for line in WALK_PATH.read_text().splitlines():
+        if not line.startswith(prefix):
+            continue
+        object_oid, raw_value = line.split(" = ", 1)
+        index = tuple(int(part) for part in object_oid[len(prefix) :].split("."))
+        value_type, text = raw_value.split(": ", 1)
+        values[index] = text.strip('"') if value_type == "STRING" else int(text)
+    return values
+
+
 async def test_measurement_oids_match_recorded_walk(hass, monkeypatch):
     """Use vendor walk OIDs independently of the integration's constants."""
-    lines = (
-        Path(__file__).parents[1] / "docs" / "snmpwalk.txt"
-    ).read_text().splitlines()
-
-    async def walk(oid):
-        prefix = f".{oid}."
-        values = {}
-        for line in lines:
-            if not line.startswith(prefix):
-                continue
-            object_oid, raw_value = line.split(" = ", 1)
-            suffix = tuple(int(part) for part in object_oid[len(prefix):].split("."))
-            value_type, text = raw_value.split(": ", 1)
-            values[suffix] = text.strip('"') if value_type == "STRING" else int(text)
-        return values
-
-    _patch_client(monkeypatch, walk)
+    _patch_client(monkeypatch, _recorded_walk)
     readings = await DirisDigiwareCoordinator(hass, _entry())._async_update_data()
 
     assert readings[(3, 1)].name == "Q13 - CENTRE  DE CALCUL"
-    assert readings[(3, 1)].active_energy_kwh == pytest.approx(88778.1996)
-    assert readings[(3, 1)].active_power_w == 9764
+    assert readings[(3, 1)].values.get("active_energy") == pytest.approx(88778.1996)
+    assert readings[(3, 1)].values.get("active_power") == 9764
 
 
 @pytest.mark.asyncio
@@ -240,8 +241,8 @@ async def test_malformed_values_are_ignored(hass, monkeypatch) -> None:
     readings = await DirisDigiwareCoordinator(hass, _entry())._async_update_data()
 
     assert list(readings) == [(3, 1)]
-    assert readings[(3, 1)].active_energy_kwh is None
-    assert readings[(3, 1)].active_power_w is None
+    assert readings[(3, 1)].values.get("active_energy") is None
+    assert readings[(3, 1)].values.get("active_power") is None
 
 
 @pytest.mark.asyncio
@@ -282,3 +283,25 @@ async def test_setup_retries_when_device_unreachable_then_unloads(
 
     await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_all_measurements_match_recorded_walk(hass, monkeypatch):
+    """Decode every optional measurement from the vendor walk."""
+    _patch_client(monkeypatch, _recorded_walk)
+    coordinator = DirisDigiwareCoordinator(hass, _entry())
+    monkeypatch.setattr(coordinator, "requested_measurements", lambda: MEASUREMENTS)
+
+    values = (await coordinator._async_update_data())[(3, 1)].values
+
+    assert values == pytest.approx(
+        {
+            "active_energy": 88778.1996,
+            "active_energy_production": 0,
+            "reactive_energy": 0,
+            "reactive_energy_production": 7053.1249,
+            "apparent_energy": 89536.6436,
+            "active_power": 9764,
+            "reactive_power": -650,
+            "apparent_power": 9785,
+        }
+    )

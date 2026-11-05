@@ -58,14 +58,14 @@ async def test_discovers_circuits_during_polling(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     registry = er.async_get(hass)
     assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == (
-        2 * len(initial_circuits)
+        8 * len(initial_circuits)
     )
 
     responses[CIRCUIT_NAME_OID] = {(3, 1): "Main", (3, 2): "Main"}
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
     await hass.async_block_till_done()
     registered = er.async_entries_for_config_entry(registry, entry.entry_id)
-    assert len(registered) == 4
+    assert len(registered) == 16
     assert len({entity.device_id for entity in registered}) == 2
     original_ids = {entity.entity_id for entity in registered}
     for key, power in ((1, "100"), (2, "200")):
@@ -78,7 +78,9 @@ async def test_discovers_circuits_during_polling(
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert all(
-        hass.states.get(entity_id).state == "unavailable" for entity_id in original_ids
+        hass.states.get(entity.entity_id).state == "unavailable"
+        for entity in registered
+        if not entity.disabled
     )
     client.walk.side_effect = lambda oid: responses[oid]
     responses[CIRCUIT_NAME_OID] = {}
@@ -169,7 +171,7 @@ async def test_circuit_devices(
     circuit_device_ids = set()
     for entry in entries:
         registered = er.async_entries_for_config_entry(entities, entry.entry_id)
-        assert len(registered) == 6
+        assert len(registered) == 24
         for key in names:
             device = devices.async_get_device_by_identifier(
                 (DOMAIN, f"{entry.entry_id}_{key[0]}_{key[1]}"), entry.entry_id
@@ -206,10 +208,100 @@ async def test_circuit_devices(
                 unique_id = f"{entry.entry_id}_main_{key[0]}_{key[1]}_{measurement}"
                 entity_id = entities.async_get_entity_id("sensor", DOMAIN, unique_id)
                 assert hass.states.get(entity_id).state == state
-        assert len(er.async_entries_for_config_entry(entities, entry.entry_id)) == 6
+        assert len(er.async_entries_for_config_entry(entities, entry.entry_id)) == 24
         for key in names:
             device = devices.async_get_device_by_identifier(
                 (DOMAIN, f"{entry.entry_id}_{key[0]}_{key[1]}"), entry.entry_id
             )
             assert device.id in circuit_device_ids
         assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_optional_measurements_are_polled_only_when_enabled(
+    hass, enable_custom_integrations, monkeypatch
+):
+    """Register optional sensors disabled and skip their columns until enabled."""
+    from custom_components.diris_digiware.const import (
+        ACTIVE_ENERGY_NEG_OID,
+        ACTIVE_ENERGY_NEG_RESIDUAL_OID,
+        REACTIVE_POWER_OID,
+    )
+
+    responses = {
+        CIRCUIT_NAME_OID: {(3, 1): "Main"},
+        ACTIVE_ENERGY_OID: {(3, 1): 12},
+        ACTIVE_ENERGY_RESIDUAL_OID: {(3, 1): 0},
+        ACTIVE_POWER_OID: {(3, 1): 100},
+        ACTIVE_ENERGY_NEG_OID: {(3, 1): 7},
+        ACTIVE_ENERGY_NEG_RESIDUAL_OID: {(3, 1): 5000},
+        REACTIVE_POWER_OID: {(3, 1): -650},
+    }
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.walk.side_effect = lambda oid: responses[oid]
+    monkeypatch.setattr(
+        "custom_components.diris_digiware.coordinator.SnmpClient", lambda *_: client
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "host": "meter.local",
+            "port": 161,
+            "username": "user",
+            "auth_key": "auth-secret",
+            "priv_key": "priv-secret",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    enabled = {
+        entity.unique_id.removeprefix(f"{entry.entry_id}_main_3_1_")
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if not entity.disabled
+    }
+    assert enabled == {"active_energy", "active_power"}
+
+    def walked() -> set[str]:
+        return {call.args[0] for call in client.walk.await_args_list}
+
+    client.walk.reset_mock()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done()
+    assert walked() == {
+        CIRCUIT_NAME_OID,
+        ACTIVE_ENERGY_OID,
+        ACTIVE_ENERGY_RESIDUAL_OID,
+        ACTIVE_POWER_OID,
+    }
+
+    for measurement in ("active_energy_production", "reactive_power"):
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_main_3_1_{measurement}"
+        )
+        registry.async_update_entity(entity_id, disabled_by=None)
+    client.walk.reset_mock()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert walked() == {
+        CIRCUIT_NAME_OID,
+        ACTIVE_ENERGY_OID,
+        ACTIVE_ENERGY_RESIDUAL_OID,
+        ACTIVE_POWER_OID,
+        ACTIVE_ENERGY_NEG_OID,
+        ACTIVE_ENERGY_NEG_RESIDUAL_OID,
+        REACTIVE_POWER_OID,
+    }
+    for measurement, state in (
+        ("active_energy_production", "7.5"),
+        ("reactive_power", "-650"),
+    ):
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_main_3_1_{measurement}"
+        )
+        assert hass.states.get(entity_id).state == state
+
+    assert await hass.config_entries.async_unload(entry.entry_id)

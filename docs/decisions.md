@@ -61,3 +61,18 @@ Format: date, decision, rationale, alternatives rejected.
   does not create duplicate entities. Preserve existing naming and unique IDs.
 - Rejected: requiring reloads to discover circuits or deleting missing circuits
   automatically (transient SNMP omissions should not remove user configuration).
+
+## 2026-11-05 - Optional measurements, polled only when enabled
+- Add active energy production (negative active), positive and negative
+  reactive energy, apparent energy, total reactive power and total apparent
+  power, all disabled by default. Each counter uses its 1/10 unit residual and
+  the same monotonic guard as active energy.
+- Each poll derives the SNMP columns to walk from the entity registry: a
+  measurement is walked if one of its sensors is enabled, or if it is enabled
+  by default and has no registry entry yet (first setup). Enabling a sensor
+  triggers Home Assistant's entry reload, so its first refresh includes it.
+- Apparent energy has no device_class (none exists in Home Assistant); this
+  exception to the project rule was approved by the user.
+- Rejected: registering demand from entity lifecycle callbacks (entities are
+  added after the first refresh, so the first poll would miss them), and
+  always walking every column (needless SNMP load).

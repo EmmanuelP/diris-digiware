@@ -12,7 +12,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfPower
+from homeassistant.const import (
+    UnitOfApparentPower,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfReactiveEnergy,
+    UnitOfReactivePower,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,22 +26,85 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
 from .const import DOMAIN
-from .coordinator import CircuitKey, CircuitReading, DirisDigiwareCoordinator
-
-ENERGY_DESCRIPTION = SensorEntityDescription(
-    key="active_energy",
-    name="Active energy",
-    device_class=SensorDeviceClass.ENERGY,
-    state_class=SensorStateClass.TOTAL_INCREASING,
-    native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-    suggested_display_precision=4,
+from .coordinator import (
+    MEASUREMENTS,
+    CircuitKey,
+    CircuitReading,
+    DirisDigiwareCoordinator,
 )
-POWER_DESCRIPTION = SensorEntityDescription(
-    key="active_power",
-    name="Active power",
-    device_class=SensorDeviceClass.POWER,
-    state_class=SensorStateClass.MEASUREMENT,
-    native_unit_of_measurement=UnitOfPower.WATT,
+
+_ENABLED_BY_DEFAULT = {m.key: m.enabled_by_default for m in MEASUREMENTS}
+
+
+def _energy(
+    key: str, name: str, device_class: SensorDeviceClass | None, unit: str
+) -> SensorEntityDescription:
+    return SensorEntityDescription(
+        key=key,
+        name=name,
+        device_class=device_class,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=unit,
+        suggested_display_precision=4,
+        entity_registry_enabled_default=_ENABLED_BY_DEFAULT[key],
+    )
+
+
+def _power(
+    key: str, name: str, device_class: SensorDeviceClass | None, unit: str
+) -> SensorEntityDescription:
+    return SensorEntityDescription(
+        key=key,
+        name=name,
+        device_class=device_class,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=unit,
+        entity_registry_enabled_default=_ENABLED_BY_DEFAULT[key],
+    )
+
+
+SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    _energy(
+        "active_energy",
+        "Active energy",
+        SensorDeviceClass.ENERGY,
+        UnitOfEnergy.KILO_WATT_HOUR,
+    ),
+    _energy(
+        "active_energy_production",
+        "Active energy production",
+        SensorDeviceClass.ENERGY,
+        UnitOfEnergy.KILO_WATT_HOUR,
+    ),
+    _energy(
+        "reactive_energy",
+        "Reactive energy",
+        SensorDeviceClass.REACTIVE_ENERGY,
+        UnitOfReactiveEnergy.KILO_VOLT_AMPERE_REACTIVE_HOUR,
+    ),
+    _energy(
+        "reactive_energy_production",
+        "Reactive energy production",
+        SensorDeviceClass.REACTIVE_ENERGY,
+        UnitOfReactiveEnergy.KILO_VOLT_AMPERE_REACTIVE_HOUR,
+    ),
+    # Home Assistant has no apparent energy device class.
+    _energy("apparent_energy", "Apparent energy", None, "kVAh"),
+    _power(
+        "active_power", "Active power", SensorDeviceClass.POWER, UnitOfPower.WATT
+    ),
+    _power(
+        "reactive_power",
+        "Reactive power",
+        SensorDeviceClass.REACTIVE_POWER,
+        UnitOfReactivePower.VOLT_AMPERE_REACTIVE,
+    ),
+    _power(
+        "apparent_power",
+        "Apparent power",
+        SensorDeviceClass.APPARENT_POWER,
+        UnitOfApparentPower.VOLT_AMPERE,
+    ),
 )
 
 
@@ -67,7 +136,7 @@ async def async_setup_entry(
                 DirisDigiwareSensor(
                     coordinator, entry, key, reading, description, device_info
                 )
-                for description in (ENERGY_DESCRIPTION, POWER_DESCRIPTION)
+                for description in SENSOR_DESCRIPTIONS
             )
         if entities:
             async_add_entities(entities)
@@ -117,9 +186,7 @@ class DirisDigiwareSensor(
         reading = self.coordinator.data.get(self._circuit_key)
         if reading is None:
             return None
-        if self.entity_description.key == ENERGY_DESCRIPTION.key:
-            return reading.active_energy_kwh
-        return reading.active_power_w
+        return reading.values.get(self.entity_description.key)
 
     @property
     def available(self) -> bool:
